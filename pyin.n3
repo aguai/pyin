@@ -1,0 +1,368 @@
+@prefix rdfs:     <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:      <http://www.w3.org/2001/XMLSchema#> .
+@prefix vamp:     <http://purl.org/ontology/vamp/> .
+@prefix plugbase: <http://vamp-plugins.org/rdf/plugins/pyin#> .
+@prefix owl:      <http://www.w3.org/2002/07/owl#> .
+@prefix dc:       <http://purl.org/dc/elements/1.1/> .
+@prefix af:       <http://purl.org/ontology/af/> .
+@prefix foaf:     <http://xmlns.com/foaf/0.1/> .
+@prefix doap: 	  <http://usefulinc.com/ns/doap#> .
+@prefix cc:       <http://web.resource.org/cc/> .
+@prefix :         <#> .
+
+<>  a   vamp:PluginDescription ;
+    foaf:maker          <http://www.vamp-plugins.org/doap.rdf#template-generator> ;
+    foaf:primaryTopic   <http://vamp-plugins.org/rdf/plugins/pyin> .
+
+:maker
+    foaf:name "Matthias Mauch" ;
+    foaf:logo <http://vamp-plugins.org/rdf/plugins/makers/qm.png> ;
+    foaf:page <http://c4dm.eecs.qmul.ac.uk/> .
+
+plugbase:library a  vamp:PluginLibrary ;
+    vamp:identifier "pyin"  ; 
+    dc:title "pYIN" ;
+    dc:description "pYIN is a modification of the well-loved YIN algorithm for fundamental frequency (F0) estimation in monophonic audio." ;
+    vamp:available_plugin  plugbase:localcandidatepyin ; 
+    vamp:available_plugin plugbase:pyin ; 
+    vamp:available_plugin plugbase:yin ; 
+    foaf:page <http://code.soundsoftware.ac.uk/projects/pyin> ;
+    foaf:maker :maker ;
+    .
+
+plugbase:localcandidatepyin a vamp:Plugin ;
+    dc:title              "Local Candidate PYIN" ;
+    vamp:name             "Local Candidate PYIN" ;
+    dc:description        """Monophonic pitch and note tracking based on a probabilistic Yin extension.""" ;
+    foaf:maker            :library_maker ;
+    dc:rights             """GPL""" ;
+#   cc:license            <Place plugin license URI here and uncomment> ; 
+    vamp:identifier       "localcandidatepyin" ;
+    vamp:vamp_API_version vamp:api_version_2 ;
+    owl:versionInfo       "2" ;
+    vamp:input_domain     vamp:TimeDomain ;
+    vamp:parameter   plugbase:localcandidatepyin_param_threshdistr ;
+    vamp:parameter   plugbase:localcandidatepyin_param_outputunvoiced ;
+    vamp:parameter   plugbase:localcandidatepyin_param_precisetime ;
+
+    vamp:output      plugbase:localcandidatepyin_output_pitchtrackcandidates ;
+    .
+plugbase:localcandidatepyin_param_threshdistr a  vamp:QuantizedParameter ;
+    vamp:identifier     "threshdistr" ;
+    dc:title            "Yin threshold distribution" ;
+    dc:format           "" ;
+    vamp:min_value       0 ;
+    vamp:max_value       7 ;
+    vamp:unit           "" ;
+    vamp:quantize_step   1  ;
+    vamp:default_value   2 ;
+    vamp:value_names     ( "Uniform" "Beta (mean 0.10)" "Beta (mean 0.15)" "Beta (mean 0.20)" "Beta (mean 0.30)" "Single Value 0.10" "Single Value 0.15" "Single Value 0.20");
+    .
+plugbase:localcandidatepyin_param_outputunvoiced a  vamp:QuantizedParameter ;
+    vamp:identifier     "outputunvoiced" ;
+    dc:title            "Output estimates classified as unvoiced?" ;
+    dc:format           "" ;
+    vamp:min_value       0 ;
+    vamp:max_value       2 ;
+    vamp:unit           "" ;
+    vamp:quantize_step   1  ;
+    vamp:default_value   0 ;
+    vamp:value_names     ( "No" "Yes" "Yes, as negative frequencies");
+    .
+plugbase:localcandidatepyin_param_precisetime a  vamp:QuantizedParameter ;
+    vamp:identifier     "precisetime" ;
+    dc:title            "Use non-standard precise YIN timing (slow)." ;
+    dc:format           "" ;
+    vamp:min_value       0 ;
+    vamp:max_value       1 ;
+    vamp:unit           "" ;
+    vamp:quantize_step   1  ;
+    vamp:default_value   0 ;
+    vamp:value_names     ();
+    .
+plugbase:localcandidatepyin_output_pitchtrackcandidates a  vamp:SparseOutput ;
+    vamp:identifier       "pitchtrackcandidates" ;
+    dc:title              "Pitch track candidates" ;
+    dc:description        """Multiple candidate pitch tracks."""  ;
+    vamp:fixed_bin_count  "false" ;
+    vamp:unit             "Hz" ;
+    a                 vamp:KnownExtentsOutput ;
+    vamp:min_value    40  ;
+    vamp:max_value    500  ;
+    vamp:sample_type      vamp:VariableSampleRate ;
+    vamp:sample_rate      172.266 ;
+#   vamp:computes_event_type   <Place event type URI here and uncomment> ;
+#   vamp:computes_feature      <Place feature attribute URI here and uncomment> ;
+#   vamp:computes_signal_type  <Place signal type URI here and uncomment> ;
+    .
+
+plugbase:pyin a   vamp:Plugin ;
+    dc:title              "pYin" ;
+    vamp:name             "pYin" ;
+    dc:description        """Monophonic pitch and note tracking based on a probabilistic Yin extension.""" ;
+    foaf:maker            :maker ;
+    dc:rights             """GPL""" ;
+#   cc:license            <Place plugin license URI here and uncomment> ; 
+    vamp:identifier       "pyin" ;
+    vamp:vamp_API_version vamp:api_version_2 ;
+    owl:versionInfo       "2" ;
+    vamp:input_domain     vamp:TimeDomain ;
+
+    vamp:parameter   plugbase:pyin_param_threshdistr ;
+    vamp:parameter   plugbase:pyin_param_outputunvoiced ;
+    vamp:parameter   plugbase:pyin_param_precisetime ;
+    vamp:parameter   plugbase:pyin_param_lowampsuppression ;
+    vamp:parameter   plugbase:pyin_param_onsetsensitivity ;
+    vamp:parameter   plugbase:pyin_param_prunethresh ;
+
+    vamp:output      plugbase:pyin_output_f0candidates ;
+    vamp:output      plugbase:pyin_output_f0probs ;
+    vamp:output      plugbase:pyin_output_voicedprob ;
+    vamp:output      plugbase:pyin_output_candidatesalience ;
+    vamp:output      plugbase:pyin_output_smoothedpitchtrack ;
+    vamp:output      plugbase:pyin_output_notes ;
+    .
+plugbase:pyin_param_threshdistr a  vamp:QuantizedParameter ;
+    vamp:identifier     "threshdistr" ;
+    dc:title            "Yin threshold distribution" ;
+    dc:format           "" ;
+    vamp:min_value       0 ;
+    vamp:max_value       7 ;
+    vamp:unit           "" ;
+    vamp:quantize_step   1  ;
+    vamp:default_value   2 ;
+    vamp:value_names     ( "Uniform" "Beta (mean 0.10)" "Beta (mean 0.15)" "Beta (mean 0.20)" "Beta (mean 0.30)" "Single Value 0.10" "Single Value 0.15" "Single Value 0.20");
+    .
+plugbase:pyin_param_outputunvoiced a  vamp:QuantizedParameter ;
+    vamp:identifier     "outputunvoiced" ;
+    dc:title            "Output estimates classified as unvoiced?" ;
+    dc:format           "" ;
+    vamp:min_value       0 ;
+    vamp:max_value       2 ;
+    vamp:unit           "" ;
+    vamp:quantize_step   1  ;
+    vamp:default_value   0 ;
+    vamp:value_names     ( "No" "Yes" "Yes, as negative frequencies");
+    .
+plugbase:pyin_param_precisetime a  vamp:QuantizedParameter ;
+    vamp:identifier     "precisetime" ;
+    dc:title            "Use non-standard precise YIN timing (slow)." ;
+    dc:format           "" ;
+    vamp:min_value       0 ;
+    vamp:max_value       1 ;
+    vamp:unit           "" ;
+    vamp:quantize_step   1  ;
+    vamp:default_value   0 ;
+    vamp:value_names     ();
+    .
+plugbase:pyin_param_lowampsuppression a  vamp:Parameter ;
+    vamp:identifier     "lowampsuppression" ;
+    dc:title            "Suppress low amplitude pitch estimates." ;
+    dc:format           "" ;
+    vamp:min_value       0 ;
+    vamp:max_value       1 ;
+    vamp:unit           ""  ;
+    vamp:default_value   0.1 ;
+    vamp:value_names     ();
+    .
+plugbase:pyin_param_onsetsensitivity a  vamp:Parameter ;
+    vamp:identifier     "onsetsensitivity" ;
+    dc:title            "Onset sensitivity" ;
+    dc:format           "" ;
+    vamp:min_value       0 ;
+    vamp:max_value       1 ;
+    vamp:unit           ""  ;
+    vamp:default_value   0.5 ;
+    vamp:value_names     ();
+    .
+plugbase:pyin_param_prunethresh a  vamp:Parameter ;
+    vamp:identifier     "prunethresh" ;
+    dc:title            "Duration pruning threshold." ;
+    dc:format           "" ;
+    vamp:min_value       0 ;
+    vamp:max_value       0.2 ;
+    vamp:unit           ""  ;
+    vamp:default_value   0.05 ;
+    vamp:value_names     ();
+    .
+plugbase:pyin_output_f0candidates a  vamp:SparseOutput ;
+    vamp:identifier       "f0candidates" ;
+    dc:title              "F0 Candidates" ;
+    dc:description        """Estimated fundamental frequency candidates."""  ;
+    vamp:fixed_bin_count  "false" ;
+    vamp:unit             "Hz" ;
+    a                 vamp:KnownExtentsOutput ;
+    vamp:min_value    40  ;
+    vamp:max_value    500  ;
+    vamp:sample_type      vamp:VariableSampleRate ;
+    vamp:sample_rate      172.266 ;
+#   vamp:computes_event_type   <Place event type URI here and uncomment> ;
+#   vamp:computes_feature      <Place feature attribute URI here and uncomment> ;
+#   vamp:computes_signal_type  <Place signal type URI here and uncomment> ;
+    .
+plugbase:pyin_output_f0probs a  vamp:SparseOutput ;
+    vamp:identifier       "f0probs" ;
+    dc:title              "Candidate Probabilities" ;
+    dc:description        """Probabilities  of estimated fundamental frequency candidates."""  ;
+    vamp:fixed_bin_count  "false" ;
+    vamp:unit             "" ;
+    a                 vamp:KnownExtentsOutput ;
+    vamp:min_value    0  ;
+    vamp:max_value    1  ;
+    vamp:sample_type      vamp:VariableSampleRate ;
+    vamp:sample_rate      172.266 ;
+#   vamp:computes_event_type   <Place event type URI here and uncomment> ;
+#   vamp:computes_feature      <Place feature attribute URI here and uncomment> ;
+#   vamp:computes_signal_type  <Place signal type URI here and uncomment> ;
+    .
+plugbase:pyin_output_voicedprob a  vamp:DenseOutput ;
+    vamp:identifier       "voicedprob" ;
+    dc:title              "Voiced Probability" ;
+    dc:description        """Probability that the signal is voiced according to Probabilistic Yin."""  ;
+    vamp:fixed_bin_count  "true" ;
+    vamp:unit             "" ;
+    a                 vamp:KnownExtentsOutput ;
+    vamp:min_value    0  ;
+    vamp:max_value    1  ;
+    vamp:bin_count        1 ;
+#   vamp:computes_event_type   <Place event type URI here and uncomment> ;
+#   vamp:computes_feature      <Place feature attribute URI here and uncomment> ;
+#   vamp:computes_signal_type  <Place signal type URI here and uncomment> ;
+    .
+plugbase:pyin_output_candidatesalience a  vamp:DenseOutput ;
+    vamp:identifier       "candidatesalience" ;
+    dc:title              "Candidate Salience" ;
+    dc:description        """Candidate Salience"""  ;
+    vamp:fixed_bin_count  "true" ;
+    vamp:unit             "" ;
+    a                 vamp:KnownExtentsOutput ;
+    vamp:min_value    0  ;
+    vamp:max_value    1  ;
+    vamp:bin_count        1024 ;
+#   vamp:computes_event_type   <Place event type URI here and uncomment> ;
+#   vamp:computes_feature      <Place feature attribute URI here and uncomment> ;
+#   vamp:computes_signal_type  <Place signal type URI here and uncomment> ;
+    .
+plugbase:pyin_output_smoothedpitchtrack a  vamp:DenseOutput ;
+    vamp:identifier       "smoothedpitchtrack" ;
+    dc:title              "Smoothed Pitch Track" ;
+    dc:description        """."""  ;
+    vamp:fixed_bin_count  "true" ;
+    vamp:unit             "Hz" ;
+    vamp:bin_count        1 ;
+#   vamp:computes_event_type   <Place event type URI here and uncomment> ;
+#   vamp:computes_feature      <Place feature attribute URI here and uncomment> ;
+#   vamp:computes_signal_type  <Place signal type URI here and uncomment> ;
+    .
+plugbase:pyin_output_notes a  vamp:SparseOutput ;
+    vamp:identifier       "notes" ;
+    dc:title              "Notes" ;
+    dc:description        """Derived fixed-pitch note frequencies"""  ;
+    vamp:fixed_bin_count  "true" ;
+    vamp:unit             "Hz" ;
+    vamp:bin_count        1 ;
+    vamp:sample_type      vamp:VariableSampleRate ;
+    vamp:sample_rate      172.266 ;
+#   vamp:computes_event_type   <Place event type URI here and uncomment> ;
+#   vamp:computes_feature      <Place feature attribute URI here and uncomment> ;
+#   vamp:computes_signal_type  <Place signal type URI here and uncomment> ;
+    .
+plugbase:yin a   vamp:Plugin ;
+    dc:title              "Yin" ;
+    vamp:name             "Yin" ;
+    dc:description        """A vamp implementation of the Yin algorithm for monophonic frequency estimation.""" ;
+    foaf:maker            :maker ;
+    dc:rights             """GPL""" ;
+#   cc:license            <Place plugin license URI here and uncomment> ; 
+    vamp:identifier       "yin" ;
+    vamp:vamp_API_version vamp:api_version_2 ;
+    owl:versionInfo       "2" ;
+    vamp:input_domain     vamp:TimeDomain ;
+
+    vamp:parameter   plugbase:yin_param_yinThreshold ;
+    vamp:parameter   plugbase:yin_param_outputunvoiced ;
+
+    vamp:output      plugbase:yin_output_f0 ;
+    vamp:output      plugbase:yin_output_periodicity ;
+    vamp:output      plugbase:yin_output_rms ;
+    vamp:output      plugbase:yin_output_salience ;
+    .
+plugbase:yin_param_yinThreshold a  vamp:QuantizedParameter ;
+    vamp:identifier     "yinThreshold" ;
+    dc:title            "Yin threshold" ;
+    dc:format           "" ;
+    vamp:min_value       0.025 ;
+    vamp:max_value       1 ;
+    vamp:unit           "" ;
+    vamp:quantize_step   0.025  ;
+    vamp:default_value   0.15 ;
+    vamp:value_names     ();
+    .
+plugbase:yin_param_outputunvoiced a  vamp:QuantizedParameter ;
+    vamp:identifier     "outputunvoiced" ;
+    dc:title            "Output estimates classified as unvoiced?" ;
+    dc:format           "" ;
+    vamp:min_value       0 ;
+    vamp:max_value       2 ;
+    vamp:unit           "" ;
+    vamp:quantize_step   1  ;
+    vamp:default_value   2 ;
+    vamp:value_names     ( "No" "Yes" "Yes, as negative frequencies");
+    .
+plugbase:yin_output_f0 a  vamp:DenseOutput ;
+    vamp:identifier       "f0" ;
+    dc:title              "Estimated f0" ;
+    dc:description        """Estimated fundamental frequency"""  ;
+    vamp:fixed_bin_count  "true" ;
+    vamp:unit             "Hz" ;
+    a                 vamp:KnownExtentsOutput ;
+    vamp:min_value    40  ;
+    vamp:max_value    500  ;
+    vamp:bin_count        1 ;
+#   vamp:computes_event_type   <Place event type URI here and uncomment> ;
+#   vamp:computes_feature      <Place feature attribute URI here and uncomment> ;
+#   vamp:computes_signal_type  <Place signal type URI here and uncomment> ;
+    .
+plugbase:yin_output_periodicity a  vamp:DenseOutput ;
+    vamp:identifier       "periodicity" ;
+    dc:title              "Periodicity" ;
+    dc:description        """by-product of Yin f0 estimation"""  ;
+    vamp:fixed_bin_count  "true" ;
+    vamp:unit             "" ;
+    a                 vamp:KnownExtentsOutput ;
+    vamp:min_value    0  ;
+    vamp:max_value    1  ;
+    vamp:bin_count        1 ;
+#   vamp:computes_event_type   <Place event type URI here and uncomment> ;
+#   vamp:computes_feature      <Place feature attribute URI here and uncomment> ;
+#   vamp:computes_signal_type  <Place signal type URI here and uncomment> ;
+    .
+plugbase:yin_output_rms a  vamp:DenseOutput ;
+    vamp:identifier       "rms" ;
+    dc:title              "Root mean square" ;
+    dc:description        """Root mean square of the waveform."""  ;
+    vamp:fixed_bin_count  "true" ;
+    vamp:unit             "" ;
+    a                 vamp:KnownExtentsOutput ;
+    vamp:min_value    0  ;
+    vamp:max_value    1  ;
+    vamp:bin_count        1 ;
+#   vamp:computes_event_type   <Place event type URI here and uncomment> ;
+#   vamp:computes_feature      <Place feature attribute URI here and uncomment> ;
+#   vamp:computes_signal_type  <Place signal type URI here and uncomment> ;
+    .
+plugbase:yin_output_salience a  vamp:DenseOutput ;
+    vamp:identifier       "salience" ;
+    dc:title              "Salience" ;
+    dc:description        """Yin Salience"""  ;
+    vamp:fixed_bin_count  "true" ;
+    vamp:unit             "" ;
+    a                 vamp:KnownExtentsOutput ;
+    vamp:min_value    0  ;
+    vamp:max_value    1  ;
+    vamp:bin_count        1024 ;
+#   vamp:computes_event_type   <Place event type URI here and uncomment> ;
+#   vamp:computes_feature      <Place feature attribute URI here and uncomment> ;
+#   vamp:computes_signal_type  <Place signal type URI here and uncomment> ;
+    .
+

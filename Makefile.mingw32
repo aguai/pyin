@@ -1,0 +1,17 @@
+
+TOOLPREFIX     ?= i586-mingw32msvc-
+CXX		= $(TOOLPREFIX)g++
+CC		= $(TOOLPREFIX)gcc
+LD		= $(TOOLPREFIX)g++
+AR		= $(TOOLPREFIX)ar
+RANLIB		= $(TOOLPREFIX)ranlib
+
+CFLAGS    += -Wall -O2
+CXXFLAGS  += $(CFLAGS) -I../include -I../boost_1_53_0
+
+PLUGIN_LDFLAGS	  := $(LDFLAGS) -static -shared -L../lib -lvamp-sdk -Wl,-Bsymbolic -static-libgcc -Wl,--retain-symbols-file=vamp-plugin.list -fno-exceptions $(shell $(CXX) -print-file-name=libstdc++.a)
+
+PLUGIN_EXT   := .dll
+
+include Makefile.inc
+

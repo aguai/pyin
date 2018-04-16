@@ -1,0 +1,12 @@
+
+CFLAGS := $(CFLAGS) -Wall -O3 -fPIC -I../vamp-plugin-sdk/ -I../../vamp-plugin-sdk/
+
+CXXFLAGS := $(CXXFLAGS) $(CFLAGS)
+
+PLUGIN_LDFLAGS := $(LDFLAGS) -shared -Wl,-Bstatic -L../vamp-plugin-sdk -L../../vamp-plugin-sdk -lvamp-sdk -Wl,-Bdynamic -Wl,--version-script=vamp-plugin.map
+TEST_LDFLAGS := -Wl,-Bstatic -L../vamp-plugin-sdk -L../../vamp-plugin-sdk -lvamp-sdk -Wl,-Bdynamic -lboost_unit_test_framework
+
+PLUGIN_EXT := .so
+
+include Makefile.inc
+
