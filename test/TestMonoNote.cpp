@@ -14,7 +14,7 @@ BOOST_AUTO_TEST_SUITE(TestMonoNote)
 
 BOOST_AUTO_TEST_CASE(instantiate)
 {
-    MonoNote mn;
+    MonoNote mn(false);
     vector<vector<pair<double, double> > > pitchProb;
     size_t n = 8;
 

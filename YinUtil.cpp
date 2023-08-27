@@ -19,19 +19,27 @@
 #include <cmath>
 #include <algorithm>
 
-#include <boost/math/distributions.hpp>
+YinUtil::YinUtil(int yinBufferSize) :
+    m_yinBufferSize(yinBufferSize),
+    m_fft(yinBufferSize * 2)
+{
+}
+
+YinUtil::~YinUtil()
+{
+}
 
 void 
-YinUtil::slowDifference(const double *in, double *yinBuffer, const size_t yinBufferSize) 
+YinUtil::slowDifference(const double *in, double *yinBuffer) 
 {
     yinBuffer[0] = 0;
     double delta ;
     int startPoint = 0;
     int endPoint = 0;
-    for (int i = 1; i < yinBufferSize; ++i) {
+    for (int i = 1; i < int(m_yinBufferSize); ++i) {
         yinBuffer[i] = 0;
-        startPoint = yinBufferSize/2 - i/2;
-        endPoint = startPoint + yinBufferSize;
+        startPoint = m_yinBufferSize/2 - i/2;
+        endPoint = startPoint + m_yinBufferSize;
         for (int j = startPoint; j < endPoint; ++j) {
             delta = in[i+j] - in[j];
             yinBuffer[i] += delta * delta;
@@ -40,99 +48,86 @@ YinUtil::slowDifference(const double *in, double *yinBuffer, const size_t yinBuf
 }
 
 void 
-YinUtil::fastDifference(const double *in, double *yinBuffer, const size_t yinBufferSize) 
+YinUtil::fastDifference(const double *in, double *yinBuffer) 
 {
-    
     // DECLARE AND INITIALISE
     // initialisation of most of the arrays here was done in a separate function,
     // with all the arrays as members of the class... moved them back here.
     
-    size_t frameSize = 2 * yinBufferSize;
-    
-    double *audioTransformedReal = new double[frameSize];
-    double *audioTransformedImag = new double[frameSize];
-    double *nullImag = new double[frameSize];
+    int frameSize = 2 * m_yinBufferSize;
+    int halfSize = m_yinBufferSize;
+
+    double *audioTransformedComplex = new double[frameSize + 2];
+    double *audioOutReal = new double[frameSize];
     double *kernel = new double[frameSize];
-    double *kernelTransformedReal = new double[frameSize];
-    double *kernelTransformedImag = new double[frameSize];
-    double *yinStyleACFReal = new double[frameSize];
-    double *yinStyleACFImag = new double[frameSize];
-    double *powerTerms = new double[yinBufferSize];
-    
-    for (size_t j = 0; j < yinBufferSize; ++j)
-    {
-        yinBuffer[j] = 0.; // set to zero
-        powerTerms[j] = 0.; // set to zero
-    }
-    
-    for (size_t j = 0; j < frameSize; ++j)
-    {
-        nullImag[j] = 0.;
-        audioTransformedReal[j] = 0.;
-        audioTransformedImag[j] = 0.;
-        kernel[j] = 0.;
-        kernelTransformedReal[j] = 0.;
-        kernelTransformedImag[j] = 0.;
-        yinStyleACFReal[j] = 0.;
-        yinStyleACFImag[j] = 0.;
-    }
+    double *kernelTransformedComplex = new double[frameSize + 2];
+    double *yinStyleACFComplex = new double[frameSize + 2];
+    double *powerTerms = new double[m_yinBufferSize];
     
     // POWER TERM CALCULATION
     // ... for the power terms in equation (7) in the Yin paper
     powerTerms[0] = 0.0;
-    for (size_t j = 0; j < yinBufferSize; ++j) {
+    for (int j = 0; j < m_yinBufferSize; ++j) {
         powerTerms[0] += in[j] * in[j];
     }
 
     // now iteratively calculate all others (saves a few multiplications)
-    for (size_t tau = 1; tau < yinBufferSize; ++tau) {
-        powerTerms[tau] = powerTerms[tau-1] - in[tau-1] * in[tau-1] + in[tau+yinBufferSize] * in[tau+yinBufferSize];  
+    for (int tau = 1; tau < m_yinBufferSize; ++tau) {
+        powerTerms[tau] = powerTerms[tau-1] -
+            in[tau-1] * in[tau-1] +
+            in[tau+m_yinBufferSize] * in[tau+m_yinBufferSize];  
     }
 
     // YIN-STYLE AUTOCORRELATION via FFT
     // 1. data
-    Vamp::FFT::forward(frameSize, in, nullImag, audioTransformedReal, audioTransformedImag);
+    m_fft.forward(in, audioTransformedComplex);
     
     // 2. half of the data, disguised as a convolution kernel
-    for (size_t j = 0; j < yinBufferSize; ++j) {
-        kernel[j] = in[yinBufferSize-1-j];
+    for (int j = 0; j < m_yinBufferSize; ++j) {
+        kernel[j] = in[m_yinBufferSize-1-j];
     }
-    Vamp::FFT::forward(frameSize, kernel, nullImag, kernelTransformedReal, kernelTransformedImag);
+    for (int j = m_yinBufferSize; j < frameSize; ++j) {
+        kernel[j] = 0.;
+    }
+    m_fft.forward(kernel, kernelTransformedComplex);
 
     // 3. convolution via complex multiplication -- written into
-    for (size_t j = 0; j < frameSize; ++j) {
-        yinStyleACFReal[j] = audioTransformedReal[j]*kernelTransformedReal[j] - audioTransformedImag[j]*kernelTransformedImag[j]; // real
-        yinStyleACFImag[j] = audioTransformedReal[j]*kernelTransformedImag[j] + audioTransformedImag[j]*kernelTransformedReal[j]; // imaginary
+    for (int j = 0; j <= halfSize; ++j) {
+        yinStyleACFComplex[j*2] = // real
+            audioTransformedComplex[j*2] * kernelTransformedComplex[j*2] -
+            audioTransformedComplex[j*2+1] * kernelTransformedComplex[j*2+1];
+        yinStyleACFComplex[j*2+1] = // imaginary
+            audioTransformedComplex[j*2] * kernelTransformedComplex[j*2+1] +
+            audioTransformedComplex[j*2+1] * kernelTransformedComplex[j*2];
     }
-    Vamp::FFT::inverse(frameSize, yinStyleACFReal, yinStyleACFImag, audioTransformedReal, audioTransformedImag);
+
+    m_fft.inverse(yinStyleACFComplex, audioOutReal);
     
     // CALCULATION OF difference function
     // ... according to (7) in the Yin paper.
-    for (size_t j = 0; j < yinBufferSize; ++j) {
-        // taking only the real part
-        yinBuffer[j] = powerTerms[0] + powerTerms[j] - 2 * audioTransformedReal[j+yinBufferSize-1];
+    for (int j = 0; j < m_yinBufferSize; ++j) {
+        yinBuffer[j] = powerTerms[0] + powerTerms[j] - 2 *
+            audioOutReal[j+m_yinBufferSize-1];
     }
-    delete [] audioTransformedReal;
-    delete [] audioTransformedImag;
-    delete [] nullImag;
+    delete [] audioTransformedComplex;
+    delete [] audioOutReal;
     delete [] kernel;
-    delete [] kernelTransformedReal;
-    delete [] kernelTransformedImag;
-    delete [] yinStyleACFReal;
-    delete [] yinStyleACFImag;
+    delete [] kernelTransformedComplex;
+    delete [] yinStyleACFComplex;
     delete [] powerTerms;
 }
 
+
 void 
-YinUtil::cumulativeDifference(double *yinBuffer, const size_t yinBufferSize)
+YinUtil::cumulativeDifference(double *yinBuffer)
 {    
-    size_t tau;
+    int tau;
     
     yinBuffer[0] = 1;
     
     double runningSum = 0;
     
-    for (tau = 1; tau < yinBufferSize; ++tau) {
+    for (tau = 1; tau < m_yinBufferSize; ++tau) {
         runningSum += yinBuffer[tau];
         if (runningSum == 0)
         {
@@ -144,19 +139,19 @@ YinUtil::cumulativeDifference(double *yinBuffer, const size_t yinBufferSize)
 }
 
 int 
-YinUtil::absoluteThreshold(const double *yinBuffer, const size_t yinBufferSize, const double thresh)
+YinUtil::absoluteThreshold(const double *yinBuffer, double thresh)
 {
-    size_t tau;
-    size_t minTau = 0;
+    int tau;
+    int minTau = 0;
     double minVal = 1000.;
     
     // using Joren Six's "loop construct" from TarsosDSP
     tau = 2;
-    while (tau < yinBufferSize)
+    while (tau < m_yinBufferSize)
     {
         if (yinBuffer[tau] < thresh)
         {
-            while (tau+1 < yinBufferSize && yinBuffer[tau+1] < yinBuffer[tau])
+            while (tau+1 < m_yinBufferSize && yinBuffer[tau+1] < yinBuffer[tau])
             {
                 ++tau;
             }
@@ -177,6 +172,8 @@ YinUtil::absoluteThreshold(const double *yinBuffer, const size_t yinBufferSize, 
     return 0;
 }
 
+#pragma GCC diagnostic ignored "-Wfloat-conversion"
+
 static float uniformDist[100] = {0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000,0.0100000};
 static float betaDist1[100] = {0.028911,0.048656,0.061306,0.068539,0.071703,0.071877,0.069915,0.066489,0.062117,0.057199,0.052034,0.046844,0.041786,0.036971,0.032470,0.028323,0.024549,0.021153,0.018124,0.015446,0.013096,0.011048,0.009275,0.007750,0.006445,0.005336,0.004397,0.003606,0.002945,0.002394,0.001937,0.001560,0.001250,0.000998,0.000792,0.000626,0.000492,0.000385,0.000300,0.000232,0.000179,0.000137,0.000104,0.000079,0.000060,0.000045,0.000033,0.000024,0.000018,0.000013,0.000009,0.000007,0.000005,0.000003,0.000002,0.000002,0.000001,0.000001,0.000001,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000};
 static float betaDist2[100] = {0.012614,0.022715,0.030646,0.036712,0.041184,0.044301,0.046277,0.047298,0.047528,0.047110,0.046171,0.044817,0.043144,0.041231,0.039147,0.036950,0.034690,0.032406,0.030133,0.027898,0.025722,0.023624,0.021614,0.019704,0.017900,0.016205,0.014621,0.013148,0.011785,0.010530,0.009377,0.008324,0.007366,0.006497,0.005712,0.005005,0.004372,0.003806,0.003302,0.002855,0.002460,0.002112,0.001806,0.001539,0.001307,0.001105,0.000931,0.000781,0.000652,0.000542,0.000449,0.000370,0.000303,0.000247,0.000201,0.000162,0.000130,0.000104,0.000082,0.000065,0.000051,0.000039,0.000030,0.000023,0.000018,0.000013,0.000010,0.000007,0.000005,0.000004,0.000003,0.000002,0.000001,0.000001,0.000001,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,0.000000};
@@ -187,22 +184,22 @@ static float single15[100] = {0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.
 static float single20[100] = {0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,1.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000,0.00000};
 
 std::vector<double>
-YinUtil::yinProb(const double *yinBuffer, const size_t prior, const size_t yinBufferSize, const size_t minTau0, const size_t maxTau0) 
+YinUtil::yinProb(const double *yinBuffer, int prior, int minTau0, int maxTau0) 
 {
-    size_t minTau = 2;
-    size_t maxTau = yinBufferSize;
+    int minTau = 2;
+    int maxTau = m_yinBufferSize;
 
     // adapt period range, if necessary
     if (minTau0 > 0 && minTau0 < maxTau0) minTau = minTau0;
-    if (maxTau0 > 0 && maxTau0 < yinBufferSize && maxTau0 > minTau) maxTau = maxTau0;
+    if (maxTau0 > 0 && maxTau0 < m_yinBufferSize && maxTau0 > minTau) maxTau = maxTau0;
 
     double minWeight = 0.01;
-    size_t tau;
+    int tau;
     std::vector<float> thresholds;
     std::vector<float> distribution;
-    std::vector<double> peakProb = std::vector<double>(yinBufferSize);
+    std::vector<double> peakProb = std::vector<double>(m_yinBufferSize);
     
-    size_t nThreshold = 100;
+    int nThreshold = 100;
     int nThresholdInt = nThreshold;
     
     for (int i = 0; i < nThresholdInt; ++i)
@@ -243,7 +240,7 @@ YinUtil::yinProb(const double *yinBuffer, const size_t prior, const size_t yinBu
     tau = minTau;
     
     // double factor = 1.0 / (0.25 * (nThresholdInt+1) * (nThresholdInt + 1)); // factor to scale down triangular weight
-    size_t minInd = 0;
+    int minInd = 0;
     float minVal = 42.f;
     // while (currThreshInd != -1 && tau < maxTau)
     // {
@@ -266,7 +263,7 @@ YinUtil::yinProb(const double *yinBuffer, const size_t prior, const size_t yinBu
     //     }
     // }
     // double nonPeakProb = 1;
-    // for (size_t i = minTau; i < maxTau; ++i)
+    // for (int i = minTau; i < maxTau; ++i)
     // {
     //     nonPeakProb -= peakProb[i];
     // }
@@ -288,7 +285,7 @@ YinUtil::yinProb(const double *yinBuffer, const size_t prior, const size_t yinBu
                 minInd = tau;
             }
             currThreshInd = nThresholdInt-1;
-            while (thresholds[currThreshInd] > yinBuffer[tau] && currThreshInd > -1) {
+            while (currThreshInd > -1 && thresholds[currThreshInd] > yinBuffer[tau]) {
                 // std::cerr << distribution[currThreshInd] << std::endl;
                 peakProb[tau] += distribution[currThreshInd];
                 currThreshInd--;
@@ -303,12 +300,12 @@ YinUtil::yinProb(const double *yinBuffer, const size_t prior, const size_t yinBu
     
     if (peakProb[minInd] > 1) {
         std::cerr << "WARNING: yin has prob > 1 ??? I'm returning all zeros instead." << std::endl;
-        return(std::vector<double>(yinBufferSize));
+        return(std::vector<double>(m_yinBufferSize));
     }
     
     double nonPeakProb = 1;
     if (sumProb > 0) {
-        for (size_t i = minTau; i < maxTau; ++i)
+        for (int i = minTau; i < maxTau; ++i)
         {
             peakProb[i] = peakProb[i] / sumProb * peakProb[minInd];
             nonPeakProb -= peakProb[i];
@@ -324,16 +321,16 @@ YinUtil::yinProb(const double *yinBuffer, const size_t prior, const size_t yinBu
 }
 
 double
-YinUtil::parabolicInterpolation(const double *yinBuffer, const size_t tau, const size_t yinBufferSize) 
+YinUtil::parabolicInterpolation(const double *yinBuffer, int tau) 
 {
     // this is taken almost literally from Joren Six's Java implementation
-    if (tau == yinBufferSize) // not valid anyway.
+    if (tau == m_yinBufferSize) // not valid anyway.
     {
         return static_cast<double>(tau);
     }
     
     double betterTau = 0.0;
-    if (tau > 0 && tau < yinBufferSize-1) {
+    if (tau > 0 && tau < m_yinBufferSize-1) {
         float s0, s1, s2;
         s0 = yinBuffer[tau-1];
         s1 = yinBuffer[tau];
@@ -352,10 +349,10 @@ YinUtil::parabolicInterpolation(const double *yinBuffer, const size_t tau, const
 }
 
 double 
-YinUtil::sumSquare(const double *in, const size_t start, const size_t end)
+YinUtil::sumSquare(const double *in, int start, int end)
 {
     double out = 0;
-    for (size_t i = start; i < end; ++i)
+    for (int i = start; i < end; ++i)
     {
         out += in[i] * in[i];
     }

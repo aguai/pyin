@@ -31,7 +31,8 @@ Yin::Yin(size_t frameSize, size_t inputSampleRate, double thresh, bool fast) :
     m_thresh(thresh),
     m_threshDistr(2),
     m_yinBufferSize(frameSize/2),
-    m_fast(fast)
+    m_fast(fast),
+    m_yinUtil(new YinUtil(m_yinBufferSize))
 {
     if (frameSize & (frameSize-1)) {
       //  throw "N must be a power of two";
@@ -40,6 +41,7 @@ Yin::Yin(size_t frameSize, size_t inputSampleRate, double thresh, bool fast) :
 
 Yin::~Yin() 
 {
+    delete m_yinUtil;
 }
 
 Yin::YinOutput
@@ -48,13 +50,13 @@ Yin::process(const double *in) const {
     double* yinBuffer = new double[m_yinBufferSize];
 
     // calculate aperiodicity function for all periods
-    if (m_fast) YinUtil::fastDifference(in, yinBuffer, m_yinBufferSize);
-    else YinUtil::slowDifference(in, yinBuffer, m_yinBufferSize);
+    if (m_fast) m_yinUtil->fastDifference(in, yinBuffer);
+    else m_yinUtil->slowDifference(in, yinBuffer);
 
-    YinUtil::cumulativeDifference(yinBuffer, m_yinBufferSize);
+    m_yinUtil->cumulativeDifference(yinBuffer);
 
     int tau = 0;
-    tau = YinUtil::absoluteThreshold(yinBuffer, m_yinBufferSize, m_thresh);
+    tau = m_yinUtil->absoluteThreshold(yinBuffer, m_thresh);
         
     double interpolatedTau;
     double aperiodicity;
@@ -62,13 +64,13 @@ Yin::process(const double *in) const {
     
     if (tau!=0)
     {
-        interpolatedTau = YinUtil::parabolicInterpolation(yinBuffer, abs(tau), m_yinBufferSize);
+        interpolatedTau = m_yinUtil->parabolicInterpolation(yinBuffer, abs(tau));
         f0 = m_inputSampleRate * (1.0 / interpolatedTau);
     } else {
         interpolatedTau = 0;
         f0 = 0;
     }
-    double rms = std::sqrt(YinUtil::sumSquare(in, 0, m_yinBufferSize)/m_yinBufferSize);
+    double rms = std::sqrt(m_yinUtil->sumSquare(in, 0, m_yinBufferSize)/m_yinBufferSize);
     aperiodicity = yinBuffer[abs(tau)];
     // std::cerr << aperiodicity << std::endl;
     if (tau < 0) f0 = -f0;
@@ -89,12 +91,12 @@ Yin::processProbabilisticYin(const double *in) const {
     double* yinBuffer = new double[m_yinBufferSize];
 
     // calculate aperiodicity function for all periods
-    if (m_fast) YinUtil::fastDifference(in, yinBuffer, m_yinBufferSize);
-    else YinUtil::slowDifference(in, yinBuffer, m_yinBufferSize);
+    if (m_fast) m_yinUtil->fastDifference(in, yinBuffer);
+    else m_yinUtil->slowDifference(in, yinBuffer);
 
-    YinUtil::cumulativeDifference(yinBuffer, m_yinBufferSize);
+    m_yinUtil->cumulativeDifference(yinBuffer);
 
-    vector<double> peakProbability = YinUtil::yinProb(yinBuffer, m_threshDistr, m_yinBufferSize);
+    vector<double> peakProbability = m_yinUtil->yinProb(yinBuffer, m_threshDistr);
     
     // calculate overall "probability" from peak probability
     double probSum = 0;
@@ -102,7 +104,7 @@ Yin::processProbabilisticYin(const double *in) const {
     {
         probSum += peakProbability[iBin];
     }
-    double rms = std::sqrt(YinUtil::sumSquare(in, 0, m_yinBufferSize)/m_yinBufferSize);
+    double rms = std::sqrt(m_yinUtil->sumSquare(in, 0, m_yinBufferSize)/m_yinBufferSize);
     Yin::YinOutput yo(0,0,rms);
     for (size_t iBuf = 0; iBuf < m_yinBufferSize; ++iBuf)
     {
@@ -111,7 +113,7 @@ Yin::processProbabilisticYin(const double *in) const {
         {
             double currentF0 = 
                 m_inputSampleRate * (1.0 /
-                YinUtil::parabolicInterpolation(yinBuffer, iBuf, m_yinBufferSize));
+                m_yinUtil->parabolicInterpolation(yinBuffer, iBuf));
             yo.freqProb.push_back(pair<double, double>(currentF0, peakProbability[iBuf]));
         }
     }

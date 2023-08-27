@@ -13,9 +13,7 @@
 
 #include "PYinVamp.h"
 #include "MonoNote.h"
-#include "MonoPitch.h"
-
-#include "vamp-sdk/FFT.h"
+#include "MonoPitchHMM.h"
 
 #include <vector>
 #include <algorithm>
@@ -44,14 +42,17 @@ PYinVamp::PYinVamp(float inputSampleRate) :
     m_oSmoothedPitchTrack(0),
     m_oNotes(0),
     m_threshDistr(2.0f),
+    m_fixedLag(1.0f),
     m_outputUnvoiced(0.0f),
     m_preciseTime(0.0f),
     m_lowAmp(0.1f),
     m_onsetSensitivity(0.7f),
     m_pruneThresh(0.1f),
+    m_pitchHmm(0),
     m_pitchProb(0),
     m_timestamp(0),
-    m_level(0)
+    m_level(0),
+    m_pitchTrack(0)
 {
 }
 
@@ -88,7 +89,7 @@ PYinVamp::getPluginVersion() const
 {
     // Increment this each time you release a version that behaves
     // differently from the previous one
-    return 2;
+    return 3;
 }
 
 string
@@ -151,6 +152,19 @@ PYinVamp::getParameterDescriptors() const
     d.valueNames.push_back("Single Value 0.10");
     d.valueNames.push_back("Single Value 0.15");
     d.valueNames.push_back("Single Value 0.20");
+    list.push_back(d);
+
+    d.valueNames.clear();
+
+    d.identifier = "fixedlag";
+    d.name = "Fixed-lag smoothing";
+    d.description = "Use fixed lag smoothing, not full Viterbi smoothing.";
+    d.unit = "";
+    d.minValue = 0.0f;
+    d.maxValue = 1.0f;
+    d.defaultValue = 1.0f;
+    d.isQuantized = true;
+    d.quantizeStep = 1.0f;
     list.push_back(d);
 
     d.identifier = "outputunvoiced";
@@ -222,6 +236,9 @@ PYinVamp::getParameter(string identifier) const
     if (identifier == "threshdistr") {
             return m_threshDistr;
     }
+    if (identifier == "fixedlag") {
+            return m_fixedLag;
+    }
     if (identifier == "outputunvoiced") {
             return m_outputUnvoiced;
     }
@@ -246,6 +263,10 @@ PYinVamp::setParameter(string identifier, float value)
     if (identifier == "threshdistr")
     {
         m_threshDistr = value;
+    }
+    if (identifier == "fixedlag")
+    {
+        m_fixedLag = value;
     }
     if (identifier == "outputunvoiced")
     {
@@ -283,7 +304,7 @@ PYinVamp::getCurrentProgram() const
 }
 
 void
-PYinVamp::selectProgram(string name)
+PYinVamp::selectProgram(string)
 {
 }
 
@@ -301,7 +322,6 @@ PYinVamp::getOutputDescriptors() const
     d.description = "Estimated fundamental frequency candidates.";
     d.unit = "Hz";
     d.hasFixedBinCount = false;
-    // d.binCount = 1;
     d.hasKnownExtents = true;
     d.minValue = m_fmin;
     d.maxValue = 500;
@@ -314,10 +334,9 @@ PYinVamp::getOutputDescriptors() const
 
     d.identifier = "f0probs";
     d.name = "Candidate Probabilities";
-    d.description = "Probabilities  of estimated fundamental frequency candidates.";
+    d.description = "Probabilities of estimated fundamental frequency candidates.";
     d.unit = "";
     d.hasFixedBinCount = false;
-    // d.binCount = 1;
     d.hasKnownExtents = true;
     d.minValue = 0;
     d.maxValue = 1;
@@ -361,13 +380,11 @@ PYinVamp::getOutputDescriptors() const
     
     d.identifier = "smoothedpitchtrack";
     d.name = "Smoothed Pitch Track";
-    d.description = ".";
+    d.description = "Frame-by-frame pitch estimate after smoothing";
     d.unit = "Hz";
     d.hasFixedBinCount = true;
     d.binCount = 1;
     d.hasKnownExtents = false;
-    // d.minValue = 0;
-    // d.maxValue = 1;
     d.isQuantized = false;
     d.sampleType = OutputDescriptor::FixedSampleRate;
     d.sampleRate = (m_inputSampleRate / m_stepSize);
@@ -378,7 +395,6 @@ PYinVamp::getOutputDescriptors() const
     d.identifier = "notes";
     d.name = "Notes";
     d.description = "Derived fixed-pitch note frequencies";
-    // d.unit = "MIDI unit";
     d.unit = "Hz";
     d.hasFixedBinCount = true;
     d.binCount = 1;
@@ -399,11 +415,6 @@ PYinVamp::initialise(size_t channels, size_t stepSize, size_t blockSize)
     if (channels < getMinChannelCount() ||
 	channels > getMaxChannelCount()) return false;
 
-/*
-    std::cerr << "PYinVamp::initialise: channels = " << channels
-          << ", stepSize = " << stepSize << ", blockSize = " << blockSize
-          << std::endl;
-*/
     m_channels = channels;
     m_stepSize = stepSize;
     m_blockSize = blockSize;
@@ -419,22 +430,22 @@ PYinVamp::reset()
     m_yin.setThresholdDistr(m_threshDistr);
     m_yin.setFrameSize(m_blockSize);
     m_yin.setFast(!m_preciseTime);
+
+    if (m_fixedLag > 0.5f) m_pitchHmm = MonoPitchHMM(100);
+    else                   m_pitchHmm = MonoPitchHMM(0);
     
     m_pitchProb.clear();
     m_timestamp.clear();
     m_level.clear();
-/*    
-    std::cerr << "PYinVamp::reset"
-          << ", blockSize = " << m_blockSize
-          << std::endl;
-*/
+    m_pitchTrack.clear();
 }
 
 PYinVamp::FeatureSet
 PYinVamp::process(const float *const *inputBuffers, RealTime timestamp)
 {
     int offset = m_preciseTime == 1.0 ? m_blockSize/2 : m_blockSize/4;
-    timestamp = timestamp + Vamp::RealTime::frame2RealTime(offset, lrintf(m_inputSampleRate));
+    timestamp = timestamp + Vamp::RealTime::frame2RealTime(offset, 
+        lrintf(m_inputSampleRate));
 
     FeatureSet fs;
     
@@ -455,8 +466,6 @@ PYinVamp::process(const float *const *inputBuffers, RealTime timestamp)
 
     m_level.push_back(yo.rms);
 
-    // First, get the things out of the way that we don't want to output 
-    // immediately, but instead save for later.
     vector<pair<double, double> > tempPitchProb;
     for (size_t iCandidate = 0; iCandidate < yo.freqProb.size(); ++iCandidate)
     {
@@ -471,8 +480,51 @@ PYinVamp::process(const float *const *inputBuffers, RealTime timestamp)
                 (tempPitch, yo.freqProb[iCandidate].second*factor));
         }
     }
+
+    vector<double> tempObsProb = m_pitchHmm.calculateObsProb(tempPitchProb);
+    if (m_timestamp.empty())
+    {
+        m_pitchHmm.initialise(tempObsProb);
+    } else {
+        m_pitchHmm.process(tempObsProb);
+    }
+
     m_pitchProb.push_back(tempPitchProb);
     m_timestamp.push_back(timestamp);
+
+    int lag = m_pitchHmm.m_fixedLag;
+
+    if (m_fixedLag > 0.5f) // do fixed-lag smoothing instead of full Viterbi
+    {
+        if (int(m_timestamp.size()) == lag + 1)
+        {
+            m_timestamp.pop_front();
+            m_pitchProb.pop_front();
+
+            Feature f;
+            f.hasTimestamp = true;
+            vector<int> rawPitchPath = m_pitchHmm.track();
+            float freq = m_pitchHmm.nearestFreq(rawPitchPath[0], 
+                                                m_pitchProb[0]);
+            m_pitchTrack.push_back(freq);
+            f.timestamp = m_timestamp[0];
+            f.values.clear();
+
+            // different output modes
+            if (freq < 0 && (m_outputUnvoiced==0))
+            {
+
+            } else {
+                if (m_outputUnvoiced == 1)
+                {
+                    f.values.push_back(fabs(freq));
+                } else {
+                    f.values.push_back(freq);
+                }
+                fs[m_oSmoothedPitchTrack].push_back(f);
+            }
+        }
+    }
 
     // F0 CANDIDATES
     Feature f;
@@ -494,6 +546,7 @@ PYinVamp::process(const float *const *inputBuffers, RealTime timestamp)
     }
     fs[m_oF0Probs].push_back(f);
     
+    f.values.clear();
     f.values.push_back(voicedProb);
     fs[m_oVoicedProb].push_back(f);
 
@@ -514,49 +567,79 @@ PYinVamp::FeatureSet
 PYinVamp::getRemainingFeatures()
 {
     FeatureSet fs;
-    Feature f;
-    f.hasTimestamp = true;
-    f.hasDuration = false;
-    
+
     if (m_pitchProb.empty()) {
         return fs;
     }
 
-    // MONO-PITCH STUFF
-    MonoPitch mp;
-    vector<float> mpOut = mp.process(m_pitchProb);
-    for (size_t iFrame = 0; iFrame < mpOut.size(); ++iFrame)
+    Feature f;
+    f.hasTimestamp = true;
+    f.hasDuration = false;
+
+    // ================== P I T C H  T R A C K =================================
+
+    // NB we do this even in fixed-lag mode, as we still have the last
+    // lag's-worth of pitch probs to consume
+    
+    vector<int> rawPitchPath = m_pitchHmm.track();
+    
+    for (size_t iFrame = 0; iFrame < rawPitchPath.size(); ++iFrame)
     {
-        if (mpOut[iFrame] < 0 && (m_outputUnvoiced==0)) continue;
+        float freq = m_pitchHmm.nearestFreq(rawPitchPath[iFrame], 
+                                            m_pitchProb[iFrame]);
+        m_pitchTrack.push_back(freq); // for note processing below
+        
         f.timestamp = m_timestamp[iFrame];
         f.values.clear();
+        
+        // different output modes
+        if (freq < 0 && (m_outputUnvoiced==0)) continue;
         if (m_outputUnvoiced == 1)
         {
-            f.values.push_back(fabs(mpOut[iFrame]));
+            f.values.push_back(fabs(freq));
         } else {
-            f.values.push_back(mpOut[iFrame]);
+            f.values.push_back(freq);
         }
-        
         fs[m_oSmoothedPitchTrack].push_back(f);
     }
-    
-    // MONO-NOTE STUFF
-//    std::cerr << "Mono Note Stuff" << std::endl;
-    MonoNote mn;
+
+    addNoteFeatures(fs);
+
+    return fs;
+}
+
+void
+PYinVamp::addNoteFeatures(FeatureSet &fs)
+{
     std::vector<std::vector<std::pair<double, double> > > smoothedPitch;
-    for (size_t iFrame = 0; iFrame < mpOut.size(); ++iFrame) {
+    for (size_t iFrame = 0; iFrame < m_pitchTrack.size(); ++iFrame) {
         std::vector<std::pair<double, double> > temp;
-        if (mpOut[iFrame] > 0)
+        if (m_pitchTrack[iFrame] > 0)
         {
-            double tempPitch = 12 * std::log(mpOut[iFrame]/440)/std::log(2.) + 69;
+            double tempPitch = 12 * 
+                std::log(m_pitchTrack[iFrame]/440)/std::log(2.) + 69;
             temp.push_back(std::pair<double,double>(tempPitch, .9));
         }
         smoothedPitch.push_back(temp);
     }
-    // vector<MonoNote::FrameOutput> mnOut = mn.process(m_pitchProb);
+
+    // In fixed-lag mode, we use fixed-lag processing for the note
+    // transitions here as well as for the pitch transitions in
+    // process. The main reason we provide the fixed-lag option is so
+    // that we can get pitch results incrementally from process; we
+    // don't get that outcome here, but we do benefit from its bounded
+    // memory usage, which can be quite a big deal. So if the caller
+    // asked for it there, we use it here too. (It is a bit slower,
+    // but not much.)
+    
+    MonoNote mn(m_fixedLag > 0.5f);
     vector<MonoNote::FrameOutput> mnOut = mn.process(smoothedPitch);
+
+    std::cerr << "mnOut size: " << mnOut.size() << std::endl;
+    std::cerr << "m_pitchTrack size: " << m_pitchTrack.size() << std::endl;
     
     // turning feature into a note feature
+    Feature f;
     f.hasTimestamp = true;
     f.hasDuration = true;
     f.values.clear();
@@ -564,18 +647,30 @@ PYinVamp::getRemainingFeatures()
     int onsetFrame = 0;
     bool isVoiced = 0;
     bool oldIsVoiced = 0;
-    size_t nFrame = m_pitchProb.size();
+    size_t nFrame = m_pitchTrack.size();
 
     float minNoteFrames = (m_inputSampleRate*m_pruneThresh) / m_stepSize;
     
-    std::vector<float> notePitchTrack; // collects pitches for one note at a time
+    // the body of the loop below should be in a function/method
+    // but what does it actually do??
+    // * takes the result of the note tracking HMM
+    // * collects contiguously pitched pitches
+    // * writes a note once it notices the voiced segment has ended
+    // complications:
+    // * it needs a lookahead of two frames for m_level (wtf was I thinking)
+    // * it needs to know the timestamp (which can be guessed from the frame no)
+    // * 
+    int offset = m_preciseTime == 1.0 ? m_blockSize/2 : m_blockSize/4;
+    RealTime timestampOffset = Vamp::RealTime::frame2RealTime(offset, 
+        lrintf(m_inputSampleRate));
+
+    std::vector<float> notePitchTrack; // collects pitches for 1 note at a time
     for (size_t iFrame = 0; iFrame < nFrame; ++iFrame)
     {
-        isVoiced = mnOut[iFrame].noteState < 3
-                   && smoothedPitch[iFrame].size() > 0
-                   && (iFrame >= nFrame-2
-                       || ((m_level[iFrame]/m_level[iFrame+2]) > m_onsetSensitivity));
-        // std::cerr << m_level[iFrame]/m_level[iFrame-1] << " " << isVoiced << std::endl;
+        isVoiced = mnOut[iFrame].noteState < 3 
+            && smoothedPitch[iFrame].size() > 0 
+            && (iFrame >= nFrame-2
+                || ((m_level[iFrame]/m_level[iFrame+2]) > m_onsetSensitivity));
         if (isVoiced && iFrame != nFrame-1)
         {
             if (oldIsVoiced == 0) // beginning of a note
@@ -587,16 +682,22 @@ PYinVamp::getRemainingFeatures()
         } else { // not currently voiced
             if (oldIsVoiced == 1) // end of note
             {
-                // std::cerr << notePitchTrack.size() << " " << minNoteFrames << std::endl;
                 if (notePitchTrack.size() >= minNoteFrames)
                 {
                     std::sort(notePitchTrack.begin(), notePitchTrack.end());
                     float medianPitch = notePitchTrack[notePitchTrack.size()/2];
-                    float medianFreq = std::pow(2,(medianPitch - 69) / 12) * 440;
+                    float medianFreq = 
+                        std::pow(2,(medianPitch - 69) / 12) * 440;
                     f.values.clear();
                     f.values.push_back(medianFreq);
-                    f.timestamp = m_timestamp[onsetFrame];
-                    f.duration = m_timestamp[iFrame] - m_timestamp[onsetFrame];
+                    RealTime start = RealTime::frame2RealTime(
+                        onsetFrame * m_stepSize, lrintf(m_inputSampleRate)) + 
+                        timestampOffset;
+                    RealTime end   = RealTime::frame2RealTime(
+                            iFrame * m_stepSize, lrintf(m_inputSampleRate)) + 
+                        timestampOffset;
+                    f.timestamp = start;
+                    f.duration = end - start;
                     fs[m_oNotes].push_back(f);
                 }
                 notePitchTrack.clear();
@@ -604,5 +705,4 @@ PYinVamp::getRemainingFeatures()
         }
         oldIsVoiced = isVoiced;
     }
-    return fs;
 }

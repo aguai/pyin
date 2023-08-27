@@ -1,0 +1,36 @@
+
+pYIN v1.2 (February 2020)
+-------------------------
+
+ - Improve performance, especially substantially reducing memory usage
+   in fixed-lag mode
+
+ - Make use of Vamp FFT interface, which was added to Vamp since the
+   last pYIN release and typically improves performance over the
+   previous code
+
+ - Some small bugfixes
+
+ - This release matches that used in Tony v2.1
+
+
+pYIN v1.1 (April 2015)
+----------------------
+
+ - Numerous improvements made during development of the Tony
+   application, primarily to the note segmentation algorithm
+
+ - Add precise timing option
+
+ - Add Local Candidate plugin
+
+ - Fix a couple of buffer overruns
+
+ - This release matches that used in Tony v1.0
+
+
+pYIN v1.0 (December 2013)
+-------------------------
+
+ - First public release
+

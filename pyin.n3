@@ -39,7 +39,7 @@ plugbase:localcandidatepyin a vamp:Plugin ;
 #   cc:license            <Place plugin license URI here and uncomment> ; 
     vamp:identifier       "localcandidatepyin" ;
     vamp:vamp_API_version vamp:api_version_2 ;
-    owl:versionInfo       "2" ;
+    owl:versionInfo       "3" ;
     vamp:input_domain     vamp:TimeDomain ;
     vamp:parameter   plugbase:localcandidatepyin_param_threshdistr ;
     vamp:parameter   plugbase:localcandidatepyin_param_outputunvoiced ;
@@ -105,7 +105,7 @@ plugbase:pyin a   vamp:Plugin ;
 #   cc:license            <Place plugin license URI here and uncomment> ; 
     vamp:identifier       "pyin" ;
     vamp:vamp_API_version vamp:api_version_2 ;
-    owl:versionInfo       "2" ;
+    owl:versionInfo       "3" ;
     vamp:input_domain     vamp:TimeDomain ;
 
     vamp:parameter   plugbase:pyin_param_threshdistr ;
@@ -263,9 +263,7 @@ plugbase:pyin_output_notes a  vamp:SparseOutput ;
     vamp:bin_count        1 ;
     vamp:sample_type      vamp:VariableSampleRate ;
     vamp:sample_rate      172.266 ;
-#   vamp:computes_event_type   <Place event type URI here and uncomment> ;
-#   vamp:computes_feature      <Place feature attribute URI here and uncomment> ;
-#   vamp:computes_signal_type  <Place signal type URI here and uncomment> ;
+    vamp:computes_event_type   af:Note ;
     .
 plugbase:yin a   vamp:Plugin ;
     dc:title              "Yin" ;
@@ -276,7 +274,7 @@ plugbase:yin a   vamp:Plugin ;
 #   cc:license            <Place plugin license URI here and uncomment> ; 
     vamp:identifier       "yin" ;
     vamp:vamp_API_version vamp:api_version_2 ;
-    owl:versionInfo       "2" ;
+    owl:versionInfo       "3" ;
     vamp:input_domain     vamp:TimeDomain ;
 
     vamp:parameter   plugbase:yin_param_yinThreshold ;
@@ -319,7 +317,7 @@ plugbase:yin_output_f0 a  vamp:DenseOutput ;
     vamp:min_value    40  ;
     vamp:max_value    500  ;
     vamp:bin_count        1 ;
-#   vamp:computes_event_type   <Place event type URI here and uncomment> ;
+    vamp:computes_event_type   af:Pitch ;
 #   vamp:computes_feature      <Place feature attribute URI here and uncomment> ;
 #   vamp:computes_signal_type  <Place signal type URI here and uncomment> ;
     .

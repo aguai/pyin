@@ -12,7 +12,7 @@
 */
 
 #include "LocalCandidatePYIN.h"
-#include "MonoPitch.h"
+#include "MonoPitchHMM.h"
 #include "YinUtil.h"
 
 #include "vamp-sdk/FFT.h"
@@ -48,12 +48,14 @@ LocalCandidatePYIN::LocalCandidatePYIN(float inputSampleRate) :
     m_preciseTime(0.0f),
     m_pitchProb(0),
     m_timestamp(0),
-    m_nCandidate(13)
+    m_nCandidate(13),
+    m_yinUtil(0)
 {
 }
 
 LocalCandidatePYIN::~LocalCandidatePYIN()
 {
+    delete m_yinUtil;
 }
 
 string
@@ -85,7 +87,7 @@ LocalCandidatePYIN::getPluginVersion() const
 {
     // Increment this each time you release a version that behaves
     // differently from the previous one
-    return 2;
+    return 3;
 }
 
 string
@@ -226,7 +228,7 @@ LocalCandidatePYIN::getCurrentProgram() const
 }
 
 void
-LocalCandidatePYIN::selectProgram(string name)
+LocalCandidatePYIN::selectProgram(string)
 {
 }
 
@@ -268,6 +270,8 @@ LocalCandidatePYIN::initialise(size_t channels, size_t stepSize, size_t blockSiz
     m_channels = channels;
     m_stepSize = stepSize;
     m_blockSize = blockSize;
+
+    m_yinUtil = new YinUtil(m_blockSize/2);
     
     reset();
 
@@ -297,20 +301,19 @@ LocalCandidatePYIN::process(const float *const *inputBuffers, RealTime timestamp
     
     size_t yinBufferSize = m_blockSize/2;
     double* yinBuffer = new double[yinBufferSize];
-    if (!m_preciseTime) YinUtil::fastDifference(dInputBuffers, yinBuffer, yinBufferSize);
-    else YinUtil::slowDifference(dInputBuffers, yinBuffer, yinBufferSize);    
+    if (!m_preciseTime) m_yinUtil->fastDifference(dInputBuffers, yinBuffer);
+    else m_yinUtil->slowDifference(dInputBuffers, yinBuffer);    
     
     delete [] dInputBuffers;
 
-    YinUtil::cumulativeDifference(yinBuffer, yinBufferSize);
+    m_yinUtil->cumulativeDifference(yinBuffer);
     
     float minFrequency = 60;
     float maxFrequency = 900;
-    vector<double> peakProbability = YinUtil::yinProb(yinBuffer, 
-                                                      m_threshDistr, 
-                                                      yinBufferSize, 
-                                                      m_inputSampleRate/maxFrequency, 
-                                                      m_inputSampleRate/minFrequency);
+    vector<double> peakProbability = m_yinUtil->yinProb(yinBuffer, 
+                                                        m_threshDistr, 
+                                                        m_inputSampleRate/maxFrequency, 
+                                                        m_inputSampleRate/minFrequency);
 
     vector<pair<double, double> > tempPitchProb;
     for (size_t iBuf = 0; iBuf < yinBufferSize; ++iBuf)
@@ -319,7 +322,7 @@ LocalCandidatePYIN::process(const float *const *inputBuffers, RealTime timestamp
         {
             double currentF0 = 
                 m_inputSampleRate * (1.0 /
-                YinUtil::parabolicInterpolation(yinBuffer, iBuf, yinBufferSize));
+                m_yinUtil->parabolicInterpolation(yinBuffer, iBuf));
             double tempPitch = 12 * std::log(currentF0/440)/std::log(2.) + 69;
             tempPitchProb.push_back(pair<double, double>(tempPitch, peakProbability[iBuf]));
         }
@@ -345,7 +348,7 @@ LocalCandidatePYIN::getRemainingFeatures()
     }
 
     // MONO-PITCH STUFF
-    MonoPitch mp;
+    MonoPitchHMM hmm(0);
     size_t nFrame = m_timestamp.size();
     vector<vector<float> > pitchTracks;
     vector<float> freqSum = vector<float>(m_nCandidate);
@@ -359,11 +362,11 @@ LocalCandidatePYIN::getRemainingFeatures()
     for (size_t iCandidate = 0; iCandidate < m_nCandidate; ++iCandidate)
     {
         pitchTracks.push_back(vector<float>(nFrame));
-        vector<vector<pair<double,double> > > tempPitchProb;
+        vector<pair<double,double> > tempPitchProb;
+        vector<vector<double> > tempObsProb;
         float centrePitch = 45 + 3 * iCandidate;
 
         for (size_t iFrame = 0; iFrame < nFrame; ++iFrame) {
-            tempPitchProb.push_back(vector<pair<double,double> >());
             float sumProb = 0;
             float pitch = 0;
             float prob = 0;
@@ -374,26 +377,33 @@ LocalCandidatePYIN::getRemainingFeatures()
                     boost::math::pdf(normalDist, pitch-centrePitch) /
                     maxNormalDist * 2;
                 sumProb += prob;
-                tempPitchProb[iFrame].push_back(
+                tempPitchProb.push_back(
                     pair<double,double>(pitch,prob));
             }
             for (size_t iProb = 0; iProb < m_pitchProb[iFrame].size(); ++iProb)
             {
-                tempPitchProb[iFrame][iProb].second /= sumProb;
+                tempPitchProb[iProb].second /= sumProb;
             }
+            tempObsProb.push_back(hmm.calculateObsProb(tempPitchProb));
         }
 
-        vector<float> mpOut = mp.process(tempPitchProb);
-        float prevFreq = 0;
-        for (size_t iFrame = 0; iFrame < nFrame; ++iFrame)
+        vector<int> rawPitchPath = hmm.decodeViterbi(tempObsProb);
+        vector<float> mpOut;
+
+        for (size_t iFrame = 0; iFrame < rawPitchPath.size(); ++iFrame)
+        {
+            float freq = hmm.nearestFreq(rawPitchPath[iFrame], 
+                                         m_pitchProb[iFrame]);
+            mpOut.push_back(freq); // for note processing below
+        }
+
+        for (size_t iFrame = 0; iFrame < rawPitchPath.size(); ++iFrame)
         {
             if (mpOut[iFrame] > 0) {
 
                 pitchTracks[iCandidate][iFrame] = mpOut[iFrame];
                 freqSum[iCandidate] += mpOut[iFrame];
                 freqNumber[iCandidate]++;
-                prevFreq = mpOut[iFrame];
-
             }
         }
         freqMean[iCandidate] = freqSum[iCandidate]*1.0/freqNumber[iCandidate];

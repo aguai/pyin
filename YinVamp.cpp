@@ -78,7 +78,7 @@ YinVamp::getPluginVersion() const
 {
     // Increment this each time you release a version that behaves
     // differently from the previous one
-    return 2;
+    return 3;
 }
 
 string
@@ -192,7 +192,7 @@ YinVamp::getCurrentProgram() const
 }
 
 void
-YinVamp::selectProgram(string name)
+YinVamp::selectProgram(string)
 {
 }
 
