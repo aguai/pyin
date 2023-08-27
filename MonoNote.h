@@ -26,7 +26,7 @@ using std::pair;
 
 class MonoNote {
 public:
-    MonoNote();
+    MonoNote(bool fixedLag);
     virtual ~MonoNote();
     
     struct FrameOutput {
@@ -39,7 +39,9 @@ public:
     };
     // pitchProb is a frame-wise vector carrying a vector of pitch-probability pairs
     const vector<FrameOutput> process(const vector<vector<pair<double, double> > > pitchProb);
+
 private:
+    bool m_fixedLag;
     MonoNoteHMM hmm;
 };
 

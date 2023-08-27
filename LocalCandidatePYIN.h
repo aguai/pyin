@@ -18,6 +18,8 @@
 
 #include "Yin.h"
 
+class YinUtil;
+
 class LocalCandidatePYIN : public Vamp::Plugin
 {
 public:
@@ -70,6 +72,8 @@ protected:
     vector<vector<pair<double, double> > > m_pitchProb;
     vector<Vamp::RealTime> m_timestamp;
     size_t m_nCandidate;
+
+    YinUtil *m_yinUtil;
 };
 
 #endif

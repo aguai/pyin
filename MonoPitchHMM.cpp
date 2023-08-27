@@ -17,23 +17,26 @@
 
 #include <cstdio>
 #include <cmath>
+#include <iostream>
 
 using std::vector;
 using std::pair;
 
-MonoPitchHMM::MonoPitchHMM() :
-m_minFreq(61.735),
-m_nBPS(5),
-m_nPitch(0),
-m_transitionWidth(0),
-m_selfTrans(0.99),
-m_yinTrust(.5),
-m_freqs(0)
+MonoPitchHMM::MonoPitchHMM(int fixedLag) :
+    SparseHMM(fixedLag),
+    m_minFreq(61.735),
+    m_nBPS(5),
+    m_nPitch(0),
+    m_transitionWidth(0),
+    m_selfTrans(0.99),
+    m_yinTrust(.5),
+    m_freqs(0)
 {
     m_transitionWidth = 5*(m_nBPS/2) + 1;
     m_nPitch = 69 * m_nBPS;
+    m_nState = 2 * m_nPitch; // voiced and unvoiced
     m_freqs = vector<double>(2*m_nPitch);
-    for (size_t iPitch = 0; iPitch < m_nPitch; ++iPitch)
+    for (int iPitch = 0; iPitch < m_nPitch; ++iPitch)
     {
         m_freqs[iPitch] = m_minFreq * std::pow(2, iPitch * 1.0 / (12 * m_nBPS));
         m_freqs[iPitch+m_nPitch] = -m_freqs[iPitch];
@@ -41,19 +44,21 @@ m_freqs(0)
     build();
 }
 
-const vector<double>
-MonoPitchHMM::calculateObsProb(const vector<pair<double, double> > pitchProb)
+vector<double>
+MonoPitchHMM::calculateObsProb(const vector<pair<double, double> > &pitchProb)
 {
     vector<double> out = vector<double>(2*m_nPitch+1);
     double probYinPitched = 0;
+    int nPair = int(pitchProb.size());
+    
     // BIN THE PITCHES
-    for (size_t iPair = 0; iPair < pitchProb.size(); ++iPair)
+    for (int iPair = 0; iPair < nPair; ++iPair)
     {
         double freq = 440. * std::pow(2, (pitchProb[iPair].first - 69)/12);
         if (freq <= m_minFreq) continue;
         double d = 0;
         double oldd = 1000;
-        for (size_t iPitch = 0; iPitch < m_nPitch; ++iPitch)
+        for (int iPitch = 0; iPitch < m_nPitch; ++iPitch)
         {
             d = std::abs(freq-m_freqs[iPitch]);
             if (oldd < d && iPitch > 0)
@@ -70,7 +75,7 @@ MonoPitchHMM::calculateObsProb(const vector<pair<double, double> > pitchProb)
     double probReallyPitched = m_yinTrust * probYinPitched;
     // std::cerr << probReallyPitched << " " << probYinPitched << std::endl;
     // damn, I forget what this is all about...
-    for (size_t iPitch = 0; iPitch < m_nPitch; ++iPitch)
+    for (int iPitch = 0; iPitch < m_nPitch; ++iPitch)
     {
         if (probYinPitched > 0) out[iPitch] *= (probReallyPitched/probYinPitched) ;
         out[iPitch+m_nPitch] = (1 - probReallyPitched) / m_nPitch;
@@ -83,19 +88,19 @@ void
 MonoPitchHMM::build()
 {
     // INITIAL VECTOR
-    init = vector<double>(2*m_nPitch, 1.0 / 2*m_nPitch);
+    m_init = vector<double>(2*m_nPitch, 1.0 / 2*m_nPitch);
     
     // TRANSITIONS
-    for (size_t iPitch = 0; iPitch < m_nPitch; ++iPitch)
+    for (int iPitch = 0; iPitch < int(m_nPitch); ++iPitch)
     {
-        int theoreticalMinNextPitch = static_cast<int>(iPitch)-static_cast<int>(m_transitionWidth/2);
+        int theoreticalMinNextPitch = iPitch-m_transitionWidth/2;
         int minNextPitch = iPitch>m_transitionWidth/2 ? iPitch-m_transitionWidth/2 : 0;
         int maxNextPitch = iPitch<m_nPitch-m_transitionWidth/2 ? iPitch+m_transitionWidth/2 : m_nPitch-1;
         
         // WEIGHT VECTOR
         double weightSum = 0;
         vector<double> weights;
-        for (size_t i = minNextPitch; i <= maxNextPitch; ++i)
+        for (int i = minNextPitch; i <= maxNextPitch; ++i)
         {
             if (i <= iPitch)
             {
@@ -110,24 +115,24 @@ MonoPitchHMM::build()
         
         // std::cerr << minNextPitch << "  " << maxNextPitch << std::endl;
         // TRANSITIONS TO CLOSE PITCH
-        for (size_t i = minNextPitch; i <= maxNextPitch; ++i)
+        for (int i = minNextPitch; i <= maxNextPitch; ++i)
         {
-            from.push_back(iPitch);
-            to.push_back(i);
-            transProb.push_back(weights[i-minNextPitch] / weightSum * m_selfTrans);
+            m_from.push_back(iPitch);
+            m_to.push_back(i);
+            m_transProb.push_back(weights[i-minNextPitch] / weightSum * m_selfTrans);
 
-            from.push_back(iPitch);
-            to.push_back(i+m_nPitch);
-            transProb.push_back(weights[i-minNextPitch] / weightSum * (1-m_selfTrans));
+            m_from.push_back(iPitch);
+            m_to.push_back(i+m_nPitch);
+            m_transProb.push_back(weights[i-minNextPitch] / weightSum * (1-m_selfTrans));
 
-            from.push_back(iPitch+m_nPitch);
-            to.push_back(i+m_nPitch);
-            transProb.push_back(weights[i-minNextPitch] / weightSum * m_selfTrans);
+            m_from.push_back(iPitch+m_nPitch);
+            m_to.push_back(i+m_nPitch);
+            m_transProb.push_back(weights[i-minNextPitch] / weightSum * m_selfTrans);
             // transProb.push_back(weights[i-minNextPitch] / weightSum * 0.5);
             
-            from.push_back(iPitch+m_nPitch);
-            to.push_back(i);
-            transProb.push_back(weights[i-minNextPitch] / weightSum * (1-m_selfTrans));
+            m_from.push_back(iPitch+m_nPitch);
+            m_to.push_back(i);
+            m_transProb.push_back(weights[i-minNextPitch] / weightSum * (1-m_selfTrans));
             // transProb.push_back(weights[i-minNextPitch] / weightSum * 0.5);
         }
 
@@ -146,8 +151,48 @@ MonoPitchHMM::build()
     // to.push_back(2*m_nPitch);
     // transProb.push_back(m_selfTrans);
     
-    // for (size_t i = 0; i < from.size(); ++i) {
+    // for (int i = 0; i < from.size(); ++i) {
     //     std::cerr << "P(["<< from[i] << " --> " << to[i] << "]) = " << transProb[i] << std::endl;
     // }
-    
+    m_nTrans = m_transProb.size();
+    m_delta = vector<double>(m_nState);
+    m_oldDelta = vector<double>(m_nState);
+}
+
+/*
+Takes a state number and a pitch-prob vector, then finds the pitch that would
+have been closest to the pitch of the state. Easy to understand? ;)
+*/
+float
+MonoPitchHMM::nearestFreq(int state, const vector<pair<double, double> > &pitchProb)
+{
+    float hmmFreq = m_freqs[state];
+    // std::cerr << "hmmFreq " << hmmFreq << std::endl;
+    float bestFreq = 0;
+    float leastDist = 10000;
+    if (hmmFreq > 0)
+    {
+        // This was a Yin estimate, so try to get original pitch estimate back
+        // ... a bit hacky, since we could have direclty saved the frequency
+        // that was assigned to the HMM bin in hmm.calculateObsProb -- but would
+        // have had to rethink the interface of that method.
+
+        // std::cerr << "pitch prob size " << pitchProb.size() << std::endl;
+
+        for (size_t iPt = 0; iPt < pitchProb.size(); ++iPt)
+        {
+            float freq = 440. * 
+                         std::pow(2, 
+                                  (pitchProb[iPt].first - 69)/12);
+            float dist = std::abs(hmmFreq-freq);
+            if (dist < leastDist)
+            {
+                leastDist = dist;
+                bestFreq = freq;
+            }
+        }
+    } else {
+        bestFreq = hmmFreq;
+    }
+    return bestFreq;
 }
